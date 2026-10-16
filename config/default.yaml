@@ -1,0 +1,25 @@
+# QueryPilot default configuration
+# All numeric fields use SI units where applicable.
+
+environment:
+  min_tables: 3          # minimum base tables per query
+  max_tables: 6          # maximum base tables per query
+  min_cardinality: 100   # minimum base-table row count
+  max_cardinality: 10000 # maximum base-table row count
+  min_selectivity: 0.01  # minimum join selectivity
+  max_selectivity: 0.5   # maximum join selectivity
+  cost_scale: 1_000_000  # COST_SCALE: normalises rewards to [-1, 0)
+  seed: 42               # global reproducibility seed
+
+training:
+  episodes: 5000
+  alpha: 0.1             # Q-learning step size
+  gamma: 1.0             # discount factor (finite-horizon, so 1.0)
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: 0.9995  # multiplicative decay per episode
+
+evaluation:
+  test_seed: 99          # kept strictly separate from training seed
+  num_test_queries: 50
+  num_eval_seeds: 5      # number of independent eval seeds for error bars
