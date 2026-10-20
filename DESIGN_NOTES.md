@@ -86,3 +86,37 @@ An episode ends when exactly 1 component remains (n_tables−1 join steps).
    correlated attributes (labelled as proxy in all output).
 3. Q-table size grows with Bell number of partition shapes; manageable for
    ≤6 tables but exponential. DQN would be needed beyond 8–10 tables.
+
+---
+
+## Day 3: State & Action Feature Abstraction for Generalisation
+
+### Limitations of Raw Table Indices
+1. **Raw table IDs (`frozenset({0, 1})`)**: Bound learned values to arbitrary table labels. If Table 0 is 100 rows in Query A and 1,000,000 rows in Query B, the Q-table cannot transfer knowledge to held-out test queries.
+2. **Positional Action Pairs (`(i, j)`)**: Indices into the dynamic component list lack stable semantic meaning across queries or even episode steps.
+3. **Missing Graph Topology**: Fails to capture component degree, central hubs vs. leaf tables, or candidate join selectivities.
+
+### Feature-Based Abstraction (`state_representation.py`)
+1. **Component Features**:
+   `(size, row_bucket, degree)` where:
+   - `size`: number of base tables in the component (`|c.tables|`)
+   - `row_bucket`: log-10 discretised rows (0–6)
+   - `degree`: number of other available components connected to `c` in the current join graph
+2. **State Feature**:
+   `(n_components, n_active_edges, sorted_tuple_of_component_features)`.
+   Completely query-agnostic, hashable, and invariant to component permutation and table indices.
+3. **Action Feature**:
+   `(feat_1, feat_2, sel_bucket, result_row_bucket)`:
+   - Canonical symmetric ordering: `feat_1 <= feat_2`
+   - `sel_bucket`: discretised cumulative selectivity of connecting edges (0–3: <0.05, <0.15, <0.30, >=0.30)
+   - `result_row_bucket`: log-10 discretised estimated result cardinality
+   Directly represents the join type: e.g. "join a small leaf table with a medium hub under high selectivity".
+
+### Trade-Offs
+- **Pros (Generalisation & Transferability)**:
+  - Enables zero-shot transfer of learned policies to held-out query instances.
+  - Compresses state-action space from combinatorial permutations to structural equivalence classes.
+  - Learns universal heuristics (e.g. early reduction, joining small selective relations first).
+- **Cons (State Aliasing & Resolution Loss)**:
+  - Discretisation merges similar cardinalities (e.g. 1,100 vs 9,500 in bucket 3).
+  - Degree and immediate selectivity do not capture multi-hop downstream graph paths; two components with identical local features but different distant neighbors will be treated identically.
