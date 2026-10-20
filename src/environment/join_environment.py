@@ -44,6 +44,11 @@ from typing import FrozenSet, List, Tuple
 from .query_generator import QueryInstance
 from .cardinality import estimate_join_cardinality, get_connecting_selectivities
 from .cost_model import join_cost, step_reward, DEFAULT_COST_SCALE
+from .state_representation import (
+    make_feature_state_key,
+    compute_action_feature,
+    discretise_selectivity,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -146,12 +151,44 @@ class JoinEnvironment:
     ValueError if an illegal action is passed to step().
     """
 
-    def __init__(self, query: QueryInstance, cost_scale: int = DEFAULT_COST_SCALE):
+    def __init__(
+        self,
+        query: QueryInstance,
+        cost_scale: int = DEFAULT_COST_SCALE,
+        state_mode: str = "raw",
+    ):
+        if state_mode not in ("raw", "feature"):
+            raise ValueError(f"state_mode must be 'raw' or 'feature', got {state_mode!r}")
         self.query = query
         self.cost_scale = cost_scale
+        self.state_mode = state_mode
         self._components: List[Component] = []
         self._terminated = False
         self._total_cost = 0
+
+    # ------------------------------------------------------------------
+    # State and Action abstraction helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def current_state_key(self) -> tuple:
+        """Return the state key corresponding to self.state_mode."""
+        if self.state_mode == "feature":
+            return make_feature_state_key(self._components, self.query, _discretise_rows)
+        return make_state_key(self._components)
+
+    def get_feature_state_key(self) -> tuple:
+        """Return query-agnostic feature-based state key for current components."""
+        return make_feature_state_key(self._components, self.query, _discretise_rows)
+
+    def get_action_feature(self, action: Tuple[int, int]) -> tuple:
+        """Return feature tuple for candidate join action (i, j)."""
+        return compute_action_feature(action, self._components, self.query, _discretise_rows)
+
+    def get_valid_action_features(self) -> List[Tuple[Tuple[int, int], tuple]]:
+        """Return a list of ((i, j), action_feature) for all currently valid actions."""
+        valid = get_valid_actions(self._components, self.query)
+        return [(a, self.get_action_feature(a)) for a in valid]
 
     # ------------------------------------------------------------------
     # Public interface
@@ -170,7 +207,7 @@ class JoinEnvironment:
         self._terminated = False
         self._total_cost = 0
         valid = get_valid_actions(self._components, self.query)
-        return make_state_key(self._components), valid
+        return self.current_state_key, valid
 
     def step(self, action: Tuple[int, int]) -> Tuple[tuple, float, bool, List[Tuple[int, int]], dict]:
         """
@@ -231,7 +268,7 @@ class JoinEnvironment:
             "tables_joined": (comp_r.tables, comp_s.tables),
             "total_cost_so_far": self._total_cost,
         }
-        return make_state_key(self._components), reward, self._terminated, valid, info
+        return self.current_state_key, reward, self._terminated, valid, info
 
     # ------------------------------------------------------------------
     # Properties
