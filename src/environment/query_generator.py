@@ -3,27 +3,20 @@ query_generator.py
 ------------------
 Generates reproducible synthetic query instances for QueryPilot.
 
-Each query is represented as:
-  - n_tables  : int, number of base tables (3–6 for MVP)
-  - cardinalities : list[int], row counts for each base table
-  - selectivities : dict[(i,j) -> float], join selectivity for each edge
-                    keys are always (min(i,j), max(i,j)) so i < j
-  - edges      : set of (i,j) pairs that form the join graph
+A QueryInstance holds:
+  - n_tables       : number of base tables (3–6 for MVP)
+  - cardinalities  : row count per base table
+  - selectivities  : join selectivity per edge, keyed as (i, j) with i < j
+  - edges          : frozenset of all join edges (same key convention)
 
-The join graph is guaranteed to be connected (generated via random spanning
-tree + optional extra edges) so no disconnected cross-joins arise by accident.
-
-Design note — state encoding
-----------------------------
-A query instance carries all the information needed to reproduce any
-environment episode deterministically from the same seed.  The generator
-itself is stateless; pass an rng (numpy.random.Generator) for reproducibility.
+The join graph is always connected — built from a random spanning tree plus
+optional extra edges — so accidental cross-joins cannot occur.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, FrozenSet, Set, Tuple
 
 
@@ -32,41 +25,32 @@ class QueryInstance:
     """Immutable description of one join-order optimisation problem."""
 
     n_tables: int
-    cardinalities: Tuple[int, ...]          # indexed 0 … n_tables-1
-    selectivities: Dict[Tuple[int, int], float]  # key: (i,j) with i<j
-    edges: FrozenSet[Tuple[int, int]]       # same key convention
+    cardinalities: Tuple[int, ...]           # row counts indexed 0 … n_tables-1
+    selectivities: Dict[Tuple[int, int], float]  # key: (i, j) with i < j
+    edges: FrozenSet[Tuple[int, int]]        # same key convention
 
-    # human-readable alias: table names T0, T1, …
     @property
     def table_names(self) -> Tuple[str, ...]:
+        """Human-readable table aliases: T0, T1, …"""
         return tuple(f"T{i}" for i in range(self.n_tables))
 
     def selectivity(self, i: int, j: int) -> float:
-        """Return selectivity for edge (i,j); order-independent."""
-        key = (min(i, j), max(i, j))
-        return self.selectivities[key]
+        """Return selectivity for edge (i, j); order-independent."""
+        return self.selectivities[(min(i, j), max(i, j))]
 
     def has_edge(self, i: int, j: int) -> bool:
-        key = (min(i, j), max(i, j))
-        return key in self.edges
+        return (min(i, j), max(i, j)) in self.edges
 
 
-def _random_spanning_tree(
-    n: int, rng: np.random.Generator
-) -> Set[Tuple[int, int]]:
+def _random_spanning_tree(n: int, rng: np.random.Generator) -> Set[Tuple[int, int]]:
     """
-    Prim's algorithm with random edge selection to produce a random spanning
-    tree on n nodes.  Guarantees connectivity.
+    Build a random spanning tree on n nodes using Prim's algorithm with
+    randomised edge selection. Guarantees the result is connected.
     """
     visited = {0}
     edges: Set[Tuple[int, int]] = set()
     while len(visited) < n:
-        candidates = [
-            (u, v)
-            for u in visited
-            for v in range(n)
-            if v not in visited
-        ]
+        candidates = [(u, v) for u in visited for v in range(n) if v not in visited]
         u, v = candidates[rng.integers(len(candidates))]
         edges.add((min(u, v), max(u, v)))
         visited.add(v)
@@ -88,62 +72,45 @@ def generate_query(
 
     Parameters
     ----------
-    rng               : numpy random Generator (caller controls seed)
-    min/max_tables    : range of table counts
-    min/max_cardinality: row-count range per table
-    min/max_selectivity: per-edge selectivity range
-    extra_edge_prob   : probability of adding each non-tree edge (makes
-                        denser join graphs; kept low to stay tractable)
-
-    Returns
-    -------
-    QueryInstance with a connected join graph.
+    rng             : numpy Generator — caller controls the seed
+    min/max_tables  : inclusive range for table count
+    min/max_cardinality : row-count range per table
+    min/max_selectivity : per-edge selectivity range
+    extra_edge_prob : probability of adding each non-tree edge (creates
+                      denser join graphs; kept low to stay tractable)
     """
     n = int(rng.integers(min_tables, max_tables + 1))
 
-    # Base-table cardinalities
-    cards = tuple(
+    cardinalities = tuple(
         int(rng.integers(min_cardinality, max_cardinality + 1))
         for _ in range(n)
     )
 
-    # Build a random spanning tree to guarantee connectivity
+    # Spanning tree guarantees connectivity; extra edges make denser graphs.
     tree_edges = _random_spanning_tree(n, rng)
-
-    # Optionally add extra edges for denser graphs
-    all_possible = {
-        (i, j) for i in range(n) for j in range(i + 1, n)
-    }
-    extra_edges = {
-        e for e in (all_possible - tree_edges)
-        if rng.random() < extra_edge_prob
-    }
+    all_possible = {(i, j) for i in range(n) for j in range(i + 1, n)}
+    extra_edges = {e for e in (all_possible - tree_edges) if rng.random() < extra_edge_prob}
     edges = tree_edges | extra_edges
 
-    # Assign a selectivity to every edge
-    sels: Dict[Tuple[int, int], float] = {
+    selectivities: Dict[Tuple[int, int], float] = {
         e: float(rng.uniform(min_selectivity, max_selectivity))
         for e in edges
     }
 
     return QueryInstance(
         n_tables=n,
-        cardinalities=cards,
-        selectivities=sels,
+        cardinalities=cardinalities,
+        selectivities=selectivities,
         edges=frozenset(edges),
     )
 
 
-def make_query_batch(
-    seed: int,
-    n_queries: int,
-    **kwargs,
-) -> list[QueryInstance]:
+def make_query_batch(seed: int, n_queries: int, **kwargs) -> list[QueryInstance]:
     """
-    Generate a reproducible batch of query instances.
+    Generate a reproducible batch of query instances from a single seed.
 
-    Use separate seeds for training and test batches (e.g. seed=42 for
-    training, seed=99 for test) to avoid data leakage.
+    Use different seeds for training and test splits to prevent data leakage
+    (e.g. seed=42 for training, seed=99 for evaluation).
     """
     rng = np.random.default_rng(seed)
     return [generate_query(rng, **kwargs) for _ in range(n_queries)]

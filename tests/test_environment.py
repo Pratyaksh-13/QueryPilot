@@ -22,7 +22,7 @@ from src.environment.cardinality import (
     estimate_join_cardinality,
     get_connecting_selectivities,
 )
-from src.environment.cost_model import join_cost, step_reward, DEFAULT_COST_SCALE
+from src.environment.cost_model import join_cost, step_reward
 
 
 # --------------------------------------------------------------------------
@@ -78,11 +78,8 @@ class TestCardinality:
             estimate_join_cardinality(100, 200, [])
 
     def test_get_connecting_selectivities_connected(self):
-        from src.environment.query_generator import generate_query
-        rng = np.random.default_rng(42)
         q = _make_3table_query(0)
-        # Edge (0,1) must exist (it's from the spanning tree)
-        # Find an actual edge
+        # Pick any edge from the query's join graph (spanning tree guarantees at least one).
         u, v = next(iter(q.edges))
         sels = get_connecting_selectivities(
             frozenset({u}), frozenset({v}),

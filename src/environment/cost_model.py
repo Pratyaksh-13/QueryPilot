@@ -3,32 +3,22 @@ cost_model.py
 -------------
 Join cost model for QueryPilot.
 
-Cost formula (transparent proxy)
----------------------------------
+Cost formula
+------------
     join_cost(R, S) = rows(R) + rows(S) + rows(R ⋈ S)
 
-Rationale: this models the cost of reading both inputs and writing the
-intermediate result.  It is a *simplified proxy* for processing/memory cost
-and is NOT a universal database engine cost model (real engines include I/O,
-CPU, pipelining, buffer effects, etc.).
-
-The SAME formula is used identically for the RL agent, all baselines, and the
-exhaustive reference so that comparisons are fair.
+This models reading both inputs and writing the intermediate result. It is a
+simplified proxy — not a real database engine cost — but it is transparent,
+cheap to compute, and used identically for the RL agent and all baselines,
+which ensures fair comparisons.
 
 Reward
 ------
-    reward_t = -join_cost(R, S) / COST_SCALE
+    reward = -join_cost / COST_SCALE
 
-COST_SCALE normalises rewards into roughly [-1, 0) so Q-values stay
-numerically well-behaved.  A documented default is provided; override via
-config if needed.
-
-Cumulative episode return
---------------------------
-With gamma=1.0 the agent maximises sum of step rewards, which is equivalent
-to minimising the total modelled join cost across all steps.  This is
-intentional: the episode return directly reflects total intermediate-result
-volume (a standard proxy for query execution effort).
+COST_SCALE normalises rewards to roughly [-1, 0) so Q-values stay numerically
+stable. With gamma = 1.0, maximising total episode return is equivalent to
+minimising total modelled join cost.
 """
 
 from __future__ import annotations
@@ -38,27 +28,18 @@ DEFAULT_COST_SCALE: int = 1_000_000  # 1 M rows ≈ reward of -1 per step
 
 def join_cost(rows_r: int, rows_s: int, rows_result: int) -> int:
     """
-    Compute the modelled cost of joining two components.
+    Modelled cost of joining two components.
 
-    Parameters
-    ----------
-    rows_r      : row count of the left component before the join
-    rows_s      : row count of the right component before the join
-    rows_result : estimated row count of the output
-
-    Returns
-    -------
-    Non-negative integer cost.
+    Returns a non-negative integer (reading both sides + writing the result).
     """
     return rows_r + rows_s + rows_result
 
 
-def step_reward(rows_r: int, rows_s: int, rows_result: int,
-                cost_scale: int = DEFAULT_COST_SCALE) -> float:
-    """
-    Compute the per-step reward signal for the RL agent.
-
-    Always non-positive (a cost penalty).
-    """
-    cost = join_cost(rows_r, rows_s, rows_result)
-    return -cost / cost_scale
+def step_reward(
+    rows_r: int,
+    rows_s: int,
+    rows_result: int,
+    cost_scale: int = DEFAULT_COST_SCALE,
+) -> float:
+    """Per-step reward for the RL agent. Always non-positive."""
+    return -join_cost(rows_r, rows_s, rows_result) / cost_scale

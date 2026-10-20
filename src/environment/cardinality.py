@@ -3,35 +3,23 @@ cardinality.py
 --------------
 Cardinality estimation for intermediate join results.
 
-Design notes
-------------
-We use the simple independence assumption:
+We use the classical independence assumption:
 
-    rows(R ⋈ S) ≈ rows(R) * rows(S) * selectivity(R, S)
+    rows(R ⋈ S) ≈ rows(R) × rows(S) × ∏ selectivities(connecting edges)
 
-This is the same estimator used in many classical query optimisers and is a
-well-known simplifying approximation (it assumes attribute value independence
-and uniform distributions).  It is NOT a universal database rule; real
-optimisers use histograms, samples, and more.
+This is a well-known simplifying approximation. Real optimisers use
+histograms and samples; we use this as a transparent cost proxy only.
 
-For intermediate results that join multiple base tables we treat the combined
-component as a single virtual relation.  The selectivity used is the
-*minimum* per-edge selectivity between any base table in R and any base table
-in S that share a join edge (i.e., the tightest filter on the first available
-predicate).  If there are multiple edges between R and S we apply each
-additional selectivity multiplicatively, capped at a minimum cardinality of 1.
-
-Numeric safety
---------------
-- Cardinalities are clipped to [1, MAX_CARD] to prevent explosion.
-- Selectivities are clipped to (0, 1].
+When R and S are connected by multiple join edges their selectivities are
+applied multiplicatively, which further reduces the estimated output size.
+Results are clamped to [1, MAX_CARD] to prevent numeric overflow.
 """
 
 from __future__ import annotations
 
-from typing import FrozenSet, Tuple, Dict
+from typing import Dict, FrozenSet, Tuple
 
-MAX_CARD: int = 10_000_000  # hard cap on intermediate cardinality (10 M rows)
+MAX_CARD: int = 10_000_000  # hard upper bound on intermediate cardinality
 
 
 def estimate_join_cardinality(
@@ -40,28 +28,27 @@ def estimate_join_cardinality(
     edge_selectivities: list[float],
 ) -> int:
     """
-    Estimate the output cardinality when joining two components.
+    Estimate the output row count when joining two components.
 
     Parameters
     ----------
     rows_r, rows_s      : current row counts of the two components
-    edge_selectivities  : list of selectivities for every join edge that
-                          connects a base table in R to one in S.
-                          Must be non-empty (caller validates legal join).
+    edge_selectivities  : selectivities for all join edges between R and S;
+                          must be non-empty (caller ensures a legal join)
 
     Returns
     -------
-    Estimated integer row count, clipped to [1, MAX_CARD].
+    Estimated row count, clamped to [1, MAX_CARD].
     """
     if not edge_selectivities:
         raise ValueError("edge_selectivities must be non-empty for a valid join")
 
+    # Multiply all selectivities; clamp each one to avoid degenerate values.
     combined_sel = 1.0
     for sel in edge_selectivities:
-        combined_sel *= max(1e-9, min(1.0, sel))  # clamp each selectivity
+        combined_sel *= max(1e-9, min(1.0, sel))
 
-    estimated = rows_r * rows_s * combined_sel
-    return max(1, min(MAX_CARD, int(estimated)))
+    return max(1, min(MAX_CARD, int(rows_r * rows_s * combined_sel)))
 
 
 def get_connecting_selectivities(
@@ -71,12 +58,10 @@ def get_connecting_selectivities(
     edges: FrozenSet[Tuple[int, int]],
 ) -> list[float]:
     """
-    Return the list of join-edge selectivities between component R and
-    component S.  A join edge exists in the query join graph when a base
-    table from R is connected to a base table from S.
+    Collect the selectivities for every join edge between component R and S.
 
-    Returns an empty list if the two components are not connected (illegal
-    join; the environment must not allow this action).
+    Returns an empty list when no such edge exists (illegal join).
+    The environment checks this before executing any action.
     """
     result = []
     for u in tables_r:
