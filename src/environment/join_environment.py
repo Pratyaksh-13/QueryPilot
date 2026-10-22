@@ -290,3 +290,10 @@ class JoinEnvironment:
     @property
     def n_components(self) -> int:
         return len(self._components)
+
+    @property
+    def valid_actions(self) -> List[Tuple[int, int]]:
+        """Return all legal (i, j) actions for the current state."""
+        if self._terminated:
+            return []
+        return get_valid_actions(self._components, self.query)
