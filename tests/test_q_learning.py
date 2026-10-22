@@ -186,6 +186,30 @@ class TestEpsilonDecay:
         eps5 = agent.decay_epsilon()
         assert pytest.approx(eps5) == 0.1
 
+    def test_linear_epsilon_decay(self):
+        config = QLearningConfig(
+            epsilon_start=1.0,
+            epsilon_min=0.05,
+            decay_schedule="linear",
+            decay_episodes=10,
+        )
+        agent = QLearningAgent(config)
+        assert agent.epsilon == 1.0
+
+        for _ in range(5):
+            agent.decay_epsilon()
+        # Halfway through 10 episodes: 1.0 - 5 * (0.95/10) = 0.525
+        assert pytest.approx(agent.epsilon) == 0.525
+
+        for _ in range(5):
+            agent.decay_epsilon()
+        # At episode 10: reached epsilon_min 0.05
+        assert pytest.approx(agent.epsilon) == 0.05
+
+        # Further steps remain floored at epsilon_min
+        agent.decay_epsilon()
+        assert pytest.approx(agent.epsilon) == 0.05
+
 
 # ---------------------------------------------------------------------------
 # Model Serialization (Save / Load)

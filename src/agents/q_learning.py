@@ -80,6 +80,8 @@ class QLearningConfig:
     epsilon_start: float = 1.0     # Initial exploration rate
     epsilon_min: float = 0.05      # Minimum exploration floor
     epsilon_decay: float = 0.995   # Multiplicative decay per episode
+    decay_schedule: str = "multiplicative"  # "multiplicative" or "linear"
+    decay_episodes: int = 2500     # Episodes to decay from epsilon_start to epsilon_min (if linear)
     state_mode: str = "feature"    # "feature" (query-agnostic) or "raw"
     seed: Optional[int] = None     # Random seed for reproducibility
 
@@ -236,11 +238,17 @@ class QLearningAgent:
     # ------------------------------------------------------------------
 
     def decay_epsilon(self) -> float:
-        """Apply one multiplicative decay step to epsilon, bounded by epsilon_min."""
-        self.epsilon = max(
-            self.config.epsilon_min,
-            self.epsilon * self.config.epsilon_decay,
-        )
+        """Apply one decay step to epsilon, bounded by epsilon_min."""
+        if self.config.decay_schedule == "linear" and self.config.decay_episodes > 0:
+            step_delta = (
+                self.config.epsilon_start - self.config.epsilon_min
+            ) / float(self.config.decay_episodes)
+            self.epsilon = max(self.config.epsilon_min, self.epsilon - step_delta)
+        else:
+            self.epsilon = max(
+                self.config.epsilon_min,
+                self.epsilon * self.config.epsilon_decay,
+            )
         return self.epsilon
 
     def train_episode(self, env: JoinEnvironment) -> Dict[str, Any]:

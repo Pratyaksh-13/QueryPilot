@@ -44,6 +44,8 @@ def train(
     epsilon_start: float,
     epsilon_min: float,
     epsilon_decay: float,
+    decay_schedule: str,
+    decay_episodes: int,
     state_mode: str,
     log_every: int = 100,
 ):
@@ -53,7 +55,8 @@ def train(
     print(f"Episodes      : {episodes}")
     print(f"Training Seed : {seed}")
     print(f"State Mode    : {state_mode}")
-    print(f"Hyperparams   : alpha={alpha}, gamma={gamma}, eps_start={epsilon_start}, eps_min={epsilon_min}, decay={epsilon_decay}")
+    print(f"Hyperparams   : alpha={alpha}, gamma={gamma}, eps_start={epsilon_start}, eps_min={epsilon_min}")
+    print(f"Decay Schedule: {decay_schedule} (decay_rate={epsilon_decay}, decay_episodes={decay_episodes})")
     print(f"Save Path     : {save_path}")
     print(f"Log Path      : {log_path}")
     print("-" * 70)
@@ -74,6 +77,8 @@ def train(
         epsilon_start=epsilon_start,
         epsilon_min=epsilon_min,
         epsilon_decay=epsilon_decay,
+        decay_schedule=decay_schedule,
+        decay_episodes=decay_episodes,
         state_mode=state_mode,
         seed=seed,
     )
@@ -161,7 +166,9 @@ def main():
     parser.add_argument("--gamma", type=float, default=1.0, help="Discount factor")
     parser.add_argument("--epsilon-start", type=float, default=1.0, help="Starting epsilon")
     parser.add_argument("--epsilon-min", type=float, default=0.05, help="Minimum epsilon")
-    parser.add_argument("--epsilon-decay", type=float, default=0.998, help="Epsilon decay rate")
+    parser.add_argument("--epsilon-decay", type=float, default=0.999, help="Epsilon decay rate")
+    parser.add_argument("--decay-schedule", type=str, default="linear", choices=["linear", "multiplicative"], help="Epsilon decay schedule")
+    parser.add_argument("--decay-episodes", type=int, default=2500, help="Episodes to reach epsilon_min under linear decay")
     parser.add_argument("--state-mode", type=str, default="feature", choices=["feature", "raw"], help="State key mode")
     parser.add_argument("--save-path", type=str, default="results/q_table.json", help="Path to save Q-table")
     parser.add_argument("--log-path", type=str, default="results/training_log.json", help="Path to save training log")
@@ -180,6 +187,8 @@ def main():
         epsilon_start=args.epsilon_start,
         epsilon_min=args.epsilon_min,
         epsilon_decay=args.epsilon_decay,
+        decay_schedule=args.decay_schedule,
+        decay_episodes=args.decay_episodes,
         state_mode=args.state_mode,
         log_every=args.log_every,
     )
