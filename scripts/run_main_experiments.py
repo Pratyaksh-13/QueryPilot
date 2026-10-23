@@ -1,12 +1,12 @@
 """
 scripts/run_main_experiments.py
 -------------------------------
-Day 6–8 full experiment pipeline for QueryPilot.
+Day 6-8 full experiment pipeline for QueryPilot.
 
 Seed discipline:
   Training : [101, 102, 103, 104, 105]
-  Validation: 500  — used for diagnostics and deciding on changes
-  Final test: 888  — used once at the very end, never for tuning
+  Validation: 500  - used for diagnostics and deciding on changes
+  Final test: 888  - used once at the very end, never for tuning
   (Test seed 999 from Day 6 is intentionally NOT used here to avoid leakage.)
 
 Day 7/8 additions over Day 6:
@@ -29,6 +29,13 @@ import json
 import sys
 import time
 from pathlib import Path
+
+# Ensure safe printing on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
@@ -188,9 +195,10 @@ def train_agents(val_queries: list, use_fallback: bool = False) -> tuple:
                           f" | eps {agent.epsilon:.3f} | val_gap {vg:.2f}%"
                           f" | Q-entries {len(agent.q_table):,}")
 
-        ck_path = ROOT_DIR / "results" / "checkpoints" / f"agent_seed_{seed}.json"
+        tag = "_fallback" if use_fallback else ""
+        ck_path = ROOT_DIR / "results" / "checkpoints" / f"agent{tag}_seed_{seed}.json"
         agent.save(ck_path)
-        log_path = ROOT_DIR / "results" / f"training_log_seed_{seed}.json"
+        log_path = ROOT_DIR / "results" / f"training_log{tag}_seed_{seed}.json"
         with open(log_path, "w") as f:
             json.dump(history, f)
 
@@ -252,12 +260,12 @@ def evaluate_on_queries(agents: dict, queries: list, base_rng_seed: int) -> list
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Diagnostics (val seed 500 ONLY — never touches test seed)
+# Phase 3: Diagnostics (val seed 500 ONLY - never touches test seed)
 # ---------------------------------------------------------------------------
 
 def run_diagnostics(agents: dict, val_queries: list) -> dict:
     print("\n" + "=" * 72)
-    print("DIAGNOSTICS — Validation Seed 500 only (test seed 888 NOT touched)")
+    print("DIAGNOSTICS - Validation Seed 500 only (test seed 888 NOT touched)")
     print("=" * 72)
 
     # --- 3a: Unseen (s,a) pair analysis ---
@@ -277,7 +285,7 @@ def run_diagnostics(agents: dict, val_queries: list) -> dict:
         unseen_reports[seed] = {"unseen_chosen": unseen_chosen,
                                 "total_steps": total_steps,
                                 "unseen_fraction": round(uf, 4)}
-        marker = "⚠" if uf > 0.05 else "✓"
+        marker = "[!]" if uf > 0.05 else "[OK]"
         print(f"  {marker} Seed {seed}: {unseen_chosen}/{total_steps} greedy steps"
               f" chose unseen (s,a) [{uf:.1%}]")
 
@@ -285,12 +293,12 @@ def run_diagnostics(agents: dict, val_queries: list) -> dict:
     print(f"\n  Mean unseen-chosen fraction across seeds: {avg_unseen_frac:.1%}")
     apply_fix = avg_unseen_frac > 0.05
     if apply_fix:
-        print("  → Fraction > 5% threshold: greedy_fallback fix WILL be applied.")
+        print("  -> Fraction > 5% threshold: greedy_fallback fix WILL be applied.")
     else:
-        print("  → Fraction ≤ 5% threshold: greedy_fallback fix applied anyway as defensive measure.")
+        print("  -> Fraction <= 5% threshold: greedy_fallback fix applied anyway as defensive measure.")
 
     # --- 3b: Aliasing on 3-table val queries ---
-    print("\n[3b] Action-key aliasing — 3-table validation queries")
+    print("\n[3b] Action-key aliasing - 3-table validation queries")
     three_q = [q for q in val_queries if q.n_tables == 3]
     total_aliased = 0
 
@@ -321,9 +329,9 @@ def run_diagnostics(agents: dict, val_queries: list) -> dict:
         print(f"  Seed {seed}: {seed_alias}/{len(three_q)} 3-table queries had aliased action keys")
 
     if total_aliased == 0:
-        print("  ✓ No aliasing detected — feature abstraction is injective on 3-table val queries.")
+        print("  [OK] No aliasing detected - feature abstraction is injective on 3-table val queries.")
     else:
-        print(f"  ⚠ {total_aliased} aliasing cases found — some actions share the same key.")
+        print(f"  [!] {total_aliased} aliasing cases found - some actions share the same key.")
 
     # --- 3c: Paired RL vs Greedy ---
     print("\n[3c] Paired RL vs Greedy (per-query win/tie/loss, val queries)")
@@ -346,13 +354,19 @@ def run_diagnostics(agents: dict, val_queries: list) -> dict:
               f"median_diff={comp['median_diff']:.3f}%  "
               f"95%CI=[{comp['ci_diff_lo']:.3f}%, {comp['ci_diff_hi']:.3f}%]")
 
-    return {
+    report = {
         "unseen_reports": {str(k): v for k, v in unseen_reports.items()},
         "avg_unseen_fraction": float(avg_unseen_frac),
         "aliasing_cases": total_aliased,
         "apply_fix": bool(apply_fix),
         "paired_rl_vs_greedy": {str(k): v for k, v in paired_results.items()},
     }
+    # Issue 5: save diagnostics so evidence isn't lost when console scrolls
+    diag_path = ROOT_DIR / "results" / "diagnostics_run_a.json"
+    with open(diag_path, "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"  Diagnostics saved to: {diag_path}")
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +395,7 @@ def print_results_table(records: list, label: str = ""):
             ], W))
         print("-" * 70)
 
-    # Headline (4–6 tables)
+    # Headline (4-6 tables)
     headline = [r for r in records if r["n_tables"] >= 4]
     rl_seed_gaps_headline = []
     for seed in TRAIN_SEEDS:
@@ -392,8 +406,8 @@ def print_results_table(records: list, label: str = ""):
 
     if rl_seed_gaps_headline:
         m, s, ci = compute_ci(rl_seed_gaps_headline)
-        print(f"\n  HEADLINE 4–6 tables:")
-        print(f"    RL   : {m:.2f}% ± {s:.2f}%  95%CI [{m-ci:.2f}%, {m+ci:.2f}%]")
+        print(f"\n  HEADLINE 4-6 tables:")
+        print(f"    RL   : {m:.2f}% +/- {s:.2f}%  95%CI [{m-ci:.2f}%, {m+ci:.2f}%]")
     greedy_h = [r["gaps"]["greedy"] for r in headline]
     print(f"    Greedy: {np.mean(greedy_h):.2f}%  (deterministic)")
 
@@ -423,11 +437,11 @@ def save_figures(val_curves: dict, records: list, label: str = ""):
     base_eps   = [p[0] for p in list(val_curves.values())[0]]
     ax.plot(base_eps, mean_curve, color="darkblue", linewidth=2.5, label="Mean (5 seeds)")
     ax.fill_between(base_eps, mean_curve - std_curve, mean_curve + std_curve,
-                    color="royalblue", alpha=0.2, label="±1 std")
+                    color="royalblue", alpha=0.2, label="+/-1 std")
 
     ax.set_xlabel("Training Episode", fontweight="bold")
     ax.set_ylabel("Val-Set Optimality Gap (%) vs Exhaustive", fontweight="bold")
-    ax.set_title(f"Greedy-Policy Val Gap During Training — {label}", fontweight="bold")
+    ax.set_title(f"Greedy-Policy Val Gap During Training - {label}", fontweight="bold")
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(loc="upper right", framealpha=0.9)
 
@@ -440,7 +454,7 @@ def save_figures(val_curves: dict, records: list, label: str = ""):
 
     # Figure 2: Optimality gap by table count
     plt.figure(figsize=(9, 5.5), dpi=150)
-    categories = ["3 tbl", "4 tbl", "5 tbl", "6 tbl", "4–6 (headline)"]
+    categories = ["3 tbl", "4 tbl", "5 tbl", "6 tbl", "4-6 (headline)"]
     x = np.arange(len(categories))
     w = 0.22
 
@@ -471,12 +485,12 @@ def save_figures(val_curves: dict, records: list, label: str = ""):
     plt.bar(x - w, rand_v,   w, label="Random",           color="#e74c3c", alpha=0.85)
     plt.bar(x,     greedy_v, w, label="Greedy",           color="#2ecc71", alpha=0.85)
     plt.bar(x + w, rl_v,     w, yerr=rl_e, capsize=4,
-            label="RL (5 seeds ± std)", color="#3498db", alpha=0.85)
+            label="RL (5 seeds +/- std)", color="#3498db", alpha=0.85)
 
     plt.axhline(0, color="black", linewidth=0.8)
     plt.xlabel("Query Complexity", fontweight="bold")
     plt.ylabel("Mean Optimality Gap (%) vs Exhaustive", fontweight="bold")
-    plt.title(f"Optimality Gap by Table Count — {label}", fontweight="bold")
+    plt.title(f"Optimality Gap by Table Count - {label}", fontweight="bold")
     plt.xticks(x, categories)
     plt.grid(axis="y", linestyle="--", alpha=0.5)
     plt.legend(framealpha=0.9)
@@ -494,7 +508,7 @@ def save_figures(val_curves: dict, records: list, label: str = ""):
 
 def run_main_experiments():
     print("=" * 72)
-    print(" QueryPilot — Day 6–8 Full Experiment Pipeline")
+    print(" QueryPilot - Day 6-8 Full Experiment Pipeline")
     print("=" * 72)
     print(f"Train seeds: {TRAIN_SEEDS}  |  Val seed: {VAL_SEED}  |  Test seed: {FINAL_TEST_SEED}")
     print(f"Episodes: {EPISODES}/seed, linear decay over {DECAY_EPISODES} eps")
@@ -524,7 +538,7 @@ def run_main_experiments():
 
     print("\n>>> Phase 3A: Evaluating baseline agents on val set...")
     val_records_a = evaluate_on_queries(agents_a, val_queries, VAL_SEED)
-    print_results_table(val_records_a, label="Baseline — Val Set (seed 500)")
+    print_results_table(val_records_a, label="Baseline - Val Set (seed 500)")
 
     print("\n>>> Phase 4A: Figures for baseline...")
     save_figures(val_curves_a, val_records_a, label="Baseline")
@@ -535,42 +549,48 @@ def run_main_experiments():
     print("\n" + "=" * 72)
     print(" RUN B: With greedy_fallback fix")
     print(f"  Diagnostic unseen-chosen rate was "
-          f"{diag['avg_unseen_fraction']:.1%} — fix applied {'(triggered)' if diag['apply_fix'] else '(defensive)'}.")
+          f"{diag['avg_unseen_fraction']:.1%} - fix applied {'(triggered)' if diag['apply_fix'] else '(defensive)'}.")
     print("=" * 72)
 
     agents_b, histories_b, val_curves_b = train_agents(val_queries, use_fallback=True)
 
     print("\n>>> Phase 2B: Evaluating fixed agents on val set...")
     val_records_b = evaluate_on_queries(agents_b, val_queries, VAL_SEED)
-    print_results_table(val_records_b, label="Fallback Fix — Val Set (seed 500)")
+    print_results_table(val_records_b, label="Q-learning+Greedy Fallback (Hybrid) - Val Set (seed 500)")
 
-    # Negative-result honesty: report if fix didn't help
+    # Compare honestly. delta < 0 means Run B improved.
+    # But gains may reflect greedy heuristic for unseen states, not better Q-values.
     mean_gap_a = np.mean([r["gaps"]["rl_mean"] for r in val_records_a])
     mean_gap_b = np.mean([r["gaps"]["rl_mean"] for r in val_records_b])
     delta = mean_gap_b - mean_gap_a
-    print(f"\n  Change in mean val gap: {'+' if delta >= 0 else ''}{delta:.3f}%  "
-          f"({'FIX HELPED' if delta < 0 else 'FIX NEUTRAL/WORSE — reported honestly'})")
+    if delta < 0:
+        print(f"\n  Val gap change: {delta:.3f}% (Run B improved).")
+        print("  [!]  Note: improvement may partly come from greedy fallback on unseen states,")
+        print("     not from better Q-values. Run A is the pure RL result.")
+    else:
+        print(f"\n  Val gap change: {delta:+.3f}% (Run B no better or worse - reported honestly).")
 
     save_figures(val_curves_b, val_records_b, label="Fallback Fix")
 
     # =====================================================================
     # FINAL EVALUATION: Use best run on fresh test seed (888), ONE TIME
     # =====================================================================
-    # Pick whichever run had lower mean val gap
+    # Pick whichever run had lower mean val gap ON VALIDATION only.
+    # Test seed 888 is not printed or evaluated until this decision is made.
     if mean_gap_b <= mean_gap_a:
         final_agents = agents_b
-        final_label = "Fallback Fix"
+        final_label = "Q-learning + Greedy Fallback (Hybrid)"
     else:
         final_agents = agents_a
-        final_label = "Baseline"
+        final_label = "Pure RL (Baseline)"
 
     print("\n" + "=" * 72)
-    print(f" FINAL EVALUATION — Test Seed {FINAL_TEST_SEED} (used once, never for decisions)")
+    print(f" FINAL EVALUATION - Test Seed {FINAL_TEST_SEED} (used once, never for decisions)")
     print(f" Using: {final_label} agents (better on val)")
     print("=" * 72)
 
     test_records = evaluate_on_queries(final_agents, test_queries, FINAL_TEST_SEED)
-    print_results_table(test_records, label=f"{final_label} — Test Set (seed {FINAL_TEST_SEED})")
+    print_results_table(test_records, label=f"{final_label} - Test Set (seed {FINAL_TEST_SEED})")
 
     # Peak cardinality summary
     print("\n>>> Peak intermediate cardinality (test set):")
