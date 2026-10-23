@@ -154,9 +154,14 @@ class QLearningAgent:
         """
         Epsilon-greedy action selection with valid-action masking.
 
-        If greedy_fallback=True and ALL valid actions are unseen (Q=0),
-        we pick the cheapest one-step join instead of a random tie — this
-        avoids the optimism trap where Q=0 beats all trained negatives.
+        When greedy_fallback=True the agent also avoids the optimism trap:
+          - If ANY valid action was seen in training, we argmax only over
+            those seen actions. Unseen actions (Q=0) cannot beat a trained
+            negative Q-value.
+          - If NO valid action was seen, we fall back to cheapest one-step
+            join cost (same info greedy uses) rather than a random pick.
+        Without greedy_fallback the original argmax over all valid actions
+        is used (Run A / pure RL).
         """
         valid_actions = env.valid_actions
         if not valid_actions:
@@ -166,29 +171,54 @@ class QLearningAgent:
             return valid_actions[int(self.rng.integers(len(valid_actions)))]
 
         state_key = self.get_state_key(env)
-        best_q = -float("inf")
-        best_actions = []
 
+        if self.config.greedy_fallback:
+            return self._seen_aware_select(env, state_key, valid_actions)
+
+        # --- Pure RL argmax (Run A) ---
+        best_q = -float("inf")
+        best_actions: List[Tuple[int, int]] = []
         for action in valid_actions:
-            action_key = self.get_action_key(env, action)
-            q_val = self.get_q(state_key, action_key)
+            q_val = self.get_q(state_key, self.get_action_key(env, action))
             if q_val > best_q:
                 best_q = q_val
                 best_actions = [action]
             elif q_val == best_q:
                 best_actions.append(action)
 
-        # If all Q-values are 0 (all unseen) and fallback is enabled,
-        # break ties by cheapest one-step join cost instead of random.
-        if self.config.greedy_fallback and best_q == 0.0 and len(best_actions) > 1:
-            return self._greedy_fallback_action(env, best_actions)
-
         if len(best_actions) == 1:
             return best_actions[0]
         return best_actions[int(self.rng.integers(len(best_actions)))]
 
+    def _seen_aware_select(
+        self, env: JoinEnvironment, state_key: tuple, valid_actions: List[Tuple[int, int]]
+    ) -> Tuple[int, int]:
+        """
+        Greedy fallback variant: restrict argmax to seen actions when any exist.
+        If none are seen, fall back to cheapest one-step join.
+        This fixes the mixed case: an unseen Q=0 cannot beat a seen negative Q.
+        """
+        seen: List[Tuple[Tuple[int, int], float]] = []
+        unseen: List[Tuple[int, int]] = []
+        for action in valid_actions:
+            ak = self.get_action_key(env, action)
+            if (state_key, ak) in self._seen_pairs:
+                seen.append((action, self.get_q(state_key, ak)))
+            else:
+                unseen.append(action)
+
+        if seen:
+            best_q = max(q for _, q in seen)
+            best_actions = [a for a, q in seen if q == best_q]
+            if len(best_actions) == 1:
+                return best_actions[0]
+            return best_actions[int(self.rng.integers(len(best_actions)))]
+
+        # All unseen — cost-based fallback (same info greedy uses)
+        return self._greedy_fallback_action(env, valid_actions)
+
     def _greedy_fallback_action(self, env: JoinEnvironment, candidates: List[Tuple[int, int]]) -> Tuple[int, int]:
-        """Among candidate actions, return the one with lowest immediate join cost."""
+        """Return the candidate with lowest immediate join cost."""
         from src.environment.cardinality import get_connecting_selectivities, estimate_join_cardinality
         from src.environment.cost_model import join_cost
         components = env.components
@@ -457,5 +487,9 @@ class QLearningAgent:
             s_k = _from_json_friendly(s_k_list)
             a_k = _from_json_friendly(a_k_list)
             agent.q_table[(s_k, a_k)] = float(q_val)
+
+        # Every Q-table entry was visited during training, so reconstruct seen_pairs
+        # from q_table keys. This ensures loaded agents report correct unseen fractions.
+        agent._seen_pairs = set(agent.q_table.keys())
 
         return agent

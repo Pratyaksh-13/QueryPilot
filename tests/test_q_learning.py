@@ -360,6 +360,30 @@ class TestDay78Additions:
         agent = QLearningAgent(cfg)  # empty Q-table
         env = JoinEnvironment(small_query, state_mode="feature")
         env.reset()
-        # Just verify it doesn't crash and returns a valid action
         chosen = agent.select_action(env, explore=False)
         assert chosen in env.valid_actions
+
+    def test_greedy_fallback_mixed_seen_unseen(self, small_query):
+        """
+        When some actions are seen (negative Q) and some are unseen (Q=0),
+        greedy_fallback=True must restrict selection to seen actions and not
+        fall into the optimism trap of choosing unseen Q=0.
+        """
+        cfg = QLearningConfig(greedy_fallback=True, seed=42)
+        agent = QLearningAgent(cfg)
+        env = JoinEnvironment(small_query, state_mode="feature")
+        env.reset()
+
+        if len(env.valid_actions) >= 2:
+            s_key = agent.get_state_key(env)
+            a_seen = env.valid_actions[0]
+            ak_seen = agent.get_action_key(env, a_seen)
+
+            # Record a_seen with a negative Q-value
+            agent.q_table[(s_key, ak_seen)] = -150.0
+            agent._seen_pairs.add((s_key, ak_seen))
+
+            # The other action(s) are unseen (Q=0 by default)
+            chosen = agent.select_action(env, explore=False)
+            assert chosen == a_seen
+
