@@ -5,3 +5,6 @@ __pycache__/
 .idea/
 .vscode/
 *.log
+
+results/checkpoints/agent_fallback_*.json
+results/checkpoints/agent_bins*.json

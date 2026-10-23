@@ -1,0 +1,79 @@
+{
+  "unseen_reports": {
+    "101": {
+      "unseen_chosen": 61,
+      "total_steps": 350,
+      "unseen_fraction": 0.1743
+    },
+    "102": {
+      "unseen_chosen": 72,
+      "total_steps": 350,
+      "unseen_fraction": 0.2057
+    },
+    "103": {
+      "unseen_chosen": 69,
+      "total_steps": 350,
+      "unseen_fraction": 0.1971
+    },
+    "104": {
+      "unseen_chosen": 77,
+      "total_steps": 350,
+      "unseen_fraction": 0.22
+    },
+    "105": {
+      "unseen_chosen": 73,
+      "total_steps": 350,
+      "unseen_fraction": 0.2086
+    }
+  },
+  "avg_unseen_fraction": 0.20114,
+  "aliasing_cases": 40,
+  "apply_fix": true,
+  "paired_rl_vs_greedy": {
+    "101": {
+      "n_queries": 100,
+      "wins_a": 6,
+      "ties": 55,
+      "losses_a": 39,
+      "median_diff": 0.0,
+      "ci_diff_lo": 0.0,
+      "ci_diff_hi": 0.0
+    },
+    "102": {
+      "n_queries": 100,
+      "wins_a": 2,
+      "ties": 49,
+      "losses_a": 49,
+      "median_diff": 0.0,
+      "ci_diff_lo": 0.0,
+      "ci_diff_hi": 2.0995839288527485
+    },
+    "103": {
+      "n_queries": 100,
+      "wins_a": 4,
+      "ties": 51,
+      "losses_a": 45,
+      "median_diff": 0.0,
+      "ci_diff_lo": 0.0,
+      "ci_diff_hi": 1.3002814076828475
+    },
+    "104": {
+      "n_queries": 100,
+      "wins_a": 6,
+      "ties": 44,
+      "losses_a": 50,
+      "median_diff": 0.052452422198260074,
+      "ci_diff_lo": 0.0,
+      "ci_diff_hi": 2.6134483510843847
+    },
+    "105": {
+      "n_queries": 100,
+      "wins_a": 6,
+      "ties": 47,
+      "losses_a": 47,
+      "median_diff": 0.0,
+      "ci_diff_lo": 0.0,
+      "ci_diff_hi": 4.052472302429697
+    }
+  }
+}
