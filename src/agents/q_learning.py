@@ -75,15 +75,18 @@ def _from_from_list(x: Any) -> Any:
 class QLearningConfig:
     """Hyperparameters for tabular Q-learning."""
 
-    alpha: float = 0.1             # Learning rate
-    gamma: float = 1.0             # Discount factor (1.0 for finite-horizon undiscounted)
-    epsilon_start: float = 1.0     # Initial exploration rate
-    epsilon_min: float = 0.05      # Minimum exploration floor
-    epsilon_decay: float = 0.995   # Multiplicative decay per episode
+    alpha: float = 0.1
+    gamma: float = 1.0
+    epsilon_start: float = 1.0
+    epsilon_min: float = 0.05
+    epsilon_decay: float = 0.995
     decay_schedule: str = "multiplicative"  # "multiplicative" or "linear"
-    decay_episodes: int = 2500     # Episodes to decay from epsilon_start to epsilon_min (if linear)
-    state_mode: str = "feature"    # "feature" (query-agnostic) or "raw"
-    seed: Optional[int] = None     # Random seed for reproducibility
+    decay_episodes: int = 2500
+    state_mode: str = "feature"     # "feature" or "raw"
+    seed: Optional[int] = None
+    # When all valid actions are unseen (Q=0), fall back to cheapest one-step
+    # join cost instead of random pick. Fixes the optimism-in-noise problem.
+    greedy_fallback: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +111,8 @@ class QLearningAgent:
 
         # Q-table: maps (state_key, action_key) -> float
         self.q_table: Dict[Tuple[tuple, tuple], float] = {}
+        # Track which (state_key, action_key) pairs have been trained on
+        self._seen_pairs: set = set()
 
     # ------------------------------------------------------------------
     # Key extraction helpers
@@ -147,30 +152,19 @@ class QLearningAgent:
         explore: bool = True,
     ) -> Tuple[int, int]:
         """
-        Choose a valid join action (i, j) using epsilon-greedy selection.
+        Epsilon-greedy action selection with valid-action masking.
 
-        Invalid actions (disconnected relations) are strictly masked out.
-        Ties among greedy actions are broken randomly to avoid directional bias.
-
-        Parameters
-        ----------
-        env     : current JoinEnvironment instance
-        explore : if True, use epsilon-greedy; if False, purely greedy (evaluation)
-
-        Returns
-        -------
-        action : (i, j) tuple with i < j
+        If greedy_fallback=True and ALL valid actions are unseen (Q=0),
+        we pick the cheapest one-step join instead of a random tie — this
+        avoids the optimism trap where Q=0 beats all trained negatives.
         """
         valid_actions = env.valid_actions
         if not valid_actions:
             raise RuntimeError("Cannot select action: no valid join actions available.")
 
-        # Epsilon-greedy exploration
         if explore and self.rng.random() < self.epsilon:
-            chosen_idx = int(self.rng.integers(len(valid_actions)))
-            return valid_actions[chosen_idx]
+            return valid_actions[int(self.rng.integers(len(valid_actions)))]
 
-        # Exploitation: evaluate Q-values of all valid actions
         state_key = self.get_state_key(env)
         best_q = -float("inf")
         best_actions = []
@@ -184,11 +178,33 @@ class QLearningAgent:
             elif q_val == best_q:
                 best_actions.append(action)
 
-        # Break ties randomly among best actions
+        # If all Q-values are 0 (all unseen) and fallback is enabled,
+        # break ties by cheapest one-step join cost instead of random.
+        if self.config.greedy_fallback and best_q == 0.0 and len(best_actions) > 1:
+            return self._greedy_fallback_action(env, best_actions)
+
         if len(best_actions) == 1:
             return best_actions[0]
-        chosen_idx = int(self.rng.integers(len(best_actions)))
-        return best_actions[chosen_idx]
+        return best_actions[int(self.rng.integers(len(best_actions)))]
+
+    def _greedy_fallback_action(self, env: JoinEnvironment, candidates: List[Tuple[int, int]]) -> Tuple[int, int]:
+        """Among candidate actions, return the one with lowest immediate join cost."""
+        from src.environment.cardinality import get_connecting_selectivities, estimate_join_cardinality
+        from src.environment.cost_model import join_cost
+        components = env.components
+        best_action, best_cost = candidates[0], float("inf")
+        for act in candidates:
+            i, j = act
+            sels = get_connecting_selectivities(
+                components[i].tables, components[j].tables,
+                env.query.selectivities, env.query.edges,
+            )
+            rows_r = estimate_join_cardinality(components[i].rows, components[j].rows, sels)
+            c = join_cost(components[i].rows, components[j].rows, rows_r)
+            if c < best_cost:
+                best_cost = c
+                best_action = act
+        return best_action
 
     # ------------------------------------------------------------------
     # Q-Learning update
@@ -231,6 +247,7 @@ class QLearningAgent:
         td_error = td_target - current_q
         new_q = current_q + self.config.alpha * td_error
         self.set_q(state_key, action_key, new_q)
+        self._seen_pairs.add((state_key, action_key))
         return td_error
 
     # ------------------------------------------------------------------
@@ -331,6 +348,59 @@ class QLearningAgent:
             "steps": len(plan),
             "plan": plan,
         }
+
+    def evaluate_episode_with_info(
+        self, env: JoinEnvironment
+    ) -> Dict[str, Any]:
+        """
+        Like evaluate_episode but also records:
+          - peak_intermediate_cardinality: max intermediate row count seen
+          - unseen_action_count: greedy actions chosen from unseen (s,a) pairs
+          - action_q_values: Q-values queried during the episode
+
+        Does not modify the Q-table or epsilon.
+        """
+        env.state_mode = self.config.state_mode
+        env.reset()
+
+        total_reward = 0.0
+        plan = []
+        peak_rows = 0
+        unseen_count = 0
+        q_values_used: List[float] = []
+
+        while not env.terminated:
+            state_key = self.get_state_key(env)
+
+            # Track Q-values and whether this is an unseen pair
+            action = self.select_action(env, explore=False)
+            action_key = self.get_action_key(env, action)
+            q_val = self.get_q(state_key, action_key)
+            q_values_used.append(q_val)
+            if (state_key, action_key) not in self._seen_pairs:
+                unseen_count += 1
+
+            plan.append(action)
+            _, reward, _, _, info = env.step(action)
+            total_reward += reward
+
+            # Track peak intermediate cardinality
+            peak_rows = max(peak_rows, info.get("rows_result", 0))
+
+        return {
+            "total_cost": env.total_cost,
+            "return": total_reward,
+            "steps": len(plan),
+            "plan": plan,
+            "peak_intermediate_cardinality": peak_rows,
+            "unseen_action_count": unseen_count,
+            "q_values_used": q_values_used,
+        }
+
+    @property
+    def seen_pairs(self) -> set:
+        """Read-only view of (state_key, action_key) pairs updated during training."""
+        return self._seen_pairs
 
     # ------------------------------------------------------------------
     # Model Save / Load (JSON)

@@ -299,3 +299,67 @@ class TestControlledTrainingExperiment:
         eval_metrics = agent.evaluate_episode(env)
         assert eval_metrics["total_cost"] > 0
         assert len(eval_metrics["plan"]) == env.query.n_tables - 1
+
+
+# ---------------------------------------------------------------------------
+# Day 7/8: evaluate_episode_with_info, seen_pairs, greedy_fallback
+# ---------------------------------------------------------------------------
+
+class TestDay78Additions:
+    def test_evaluate_with_info_returns_peak_cardinality(self, env):
+        """evaluate_episode_with_info must return a non-negative peak cardinality."""
+        agent = QLearningAgent(QLearningConfig(seed=7))
+        for _ in range(10):
+            agent.train_episode(env)
+        res = agent.evaluate_episode_with_info(env)
+        assert "peak_intermediate_cardinality" in res
+        assert res["peak_intermediate_cardinality"] >= 0
+        assert "unseen_action_count" in res
+        assert res["steps"] == env.query.n_tables - 1
+
+    def test_seen_pairs_populated_during_training(self, env):
+        """_seen_pairs must grow as training visits (s,a) pairs."""
+        agent = QLearningAgent(QLearningConfig(seed=8))
+        assert len(agent._seen_pairs) == 0
+        for _ in range(20):
+            agent.train_episode(env)
+        assert len(agent._seen_pairs) > 0
+
+    def test_greedy_fallback_picks_cheaper_action(self, small_query):
+        """
+        When greedy_fallback=True and all Q-values are 0 (unseen state),
+        the agent must pick the cheapest valid join, not a random one.
+        """
+        cfg = QLearningConfig(greedy_fallback=True, seed=9)
+        agent = QLearningAgent(cfg)  # empty Q-table: everything is 0
+        env = JoinEnvironment(small_query, state_mode="feature")
+        env.reset()
+
+        # Collect costs for each valid action
+        from src.environment.cardinality import get_connecting_selectivities, estimate_join_cardinality
+        from src.environment.cost_model import join_cost
+        components = env.components
+        action_costs = {}
+        for a in env.valid_actions:
+            i, j = a
+            sels = get_connecting_selectivities(
+                components[i].tables, components[j].tables,
+                small_query.selectivities, small_query.edges)
+            rows_r = estimate_join_cardinality(components[i].rows, components[j].rows, sels)
+            action_costs[a] = join_cost(components[i].rows, components[j].rows, rows_r)
+
+        if len(action_costs) >= 2:
+            chosen = agent.select_action(env, explore=False)
+            cheapest = min(action_costs, key=action_costs.get)
+            # With greedy_fallback, chosen should be the cheapest available
+            assert action_costs[chosen] == action_costs[cheapest]
+
+    def test_greedy_fallback_off_random_tiebreak(self, small_query):
+        """Without greedy_fallback, ties are broken randomly (not always cheapest)."""
+        cfg = QLearningConfig(greedy_fallback=False, seed=42)
+        agent = QLearningAgent(cfg)  # empty Q-table
+        env = JoinEnvironment(small_query, state_mode="feature")
+        env.reset()
+        # Just verify it doesn't crash and returns a valid action
+        chosen = agent.select_action(env, explore=False)
+        assert chosen in env.valid_actions
