@@ -1,0 +1,31 @@
+{
+  "greedy": {
+    "n_queries": 100,
+    "intermediate_total": 250,
+    "intermediate_at_clamp": 95,
+    "intermediate_clamp_fraction": 0.38,
+    "final_total": 100,
+    "final_at_clamp": 100,
+    "final_clamp_fraction": 1.0,
+    "median_unclamped_peak": 2803738711950.8457,
+    "max_unclamped_peak": 2.2066278760723377e+18,
+    "median_unclamped_final": 2803738711950.8457
+  },
+  "rl": {
+    "n_queries": 100,
+    "intermediate_total": 250,
+    "intermediate_at_clamp": 118,
+    "intermediate_clamp_fraction": 0.472,
+    "final_total": 100,
+    "final_at_clamp": 100,
+    "final_clamp_fraction": 1.0,
+    "median_unclamped_peak": 2803738711950.8457,
+    "max_unclamped_peak": 2.2066278760723374e+18,
+    "median_unclamped_final": 2803738711950.8457
+  },
+  "cost_model_notes": {
+    "MAX_CARD": 10000000,
+    "final_result_term_in_cost": true,
+    "explanation": "step cost = rows_r + rows_s + rows_result, applied to every join including the last, so the final output size IS charged."
+  }
+}
