@@ -42,6 +42,39 @@ def summarize_subset(records):
     }
 
 
+def save_test_figure(out):
+    """Bar chart of mean optimality gap by table count on the test set (seed 888)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    labels = ["3", "4", "5", "6", "4-6"]
+    subsets = [out["by_size"][k] for k in ("3", "4", "5", "6")] + [out["headline_4_to_6"]]
+    rand = [x["random_mean_gap"] for x in subsets]
+    greedy = [x["greedy_mean_gap"] for x in subsets]
+    rl = [x["rl_mean_of_seed_means"] for x in subsets]
+    rl_sd = [x["rl_across_seed_std_ddof1"] for x in subsets]
+
+    xs = np.arange(len(labels))
+    w = 0.26
+    fig, ax = plt.subplots(figsize=(7, 4), dpi=150)
+    ax.bar(xs - w, rand, w, label="Random", color="#e74c3c", alpha=0.85)
+    ax.bar(xs, greedy, w, label="Greedy", color="#2ecc71", alpha=0.85)
+    ax.bar(xs + w, rl, w, yerr=rl_sd, capsize=3, label="RL (mean of 5 seeds, +/- sd)",
+           color="#3498db", alpha=0.85)
+    ax.set_xticks(xs)
+    ax.set_xticklabels([f"{x} tables" if x != "4-6" else "4-6 (headline)" for x in labels])
+    ax.set_ylabel("Mean optimality gap (%)")
+    ax.set_title(f"Test set (seed {out['test_seed']}), pure RL")
+    ax.legend(frameon=False)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    fig_dir = ROOT_DIR / "results" / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(fig_dir / "test_gap_by_size.png")
+    plt.close(fig)
+
+
 def main():
     path = ROOT_DIR / "results" / "main_experiment_summary.json"
     summary = json.load(open(path))
@@ -86,6 +119,7 @@ def main():
 
     with open(ROOT_DIR / "results" / "final_test_summary.json", "w") as f:
         json.dump(out, f, indent=2)
+    save_test_figure(out)
 
     print("RL sd = sample std (ddof=1) across the 5 training seeds")
     print(f"Test seed {out['test_seed']} ({out['final_label']})")
