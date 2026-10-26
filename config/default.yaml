@@ -11,13 +11,14 @@ environment:
   cost_scale: 1_000_000  # COST_SCALE: normalises rewards to [-1, 0)
   seed: 42               # global reproducibility seed
 
-training:
+training:   # informational only: scripts/run_main_experiments.py sets these in code
   episodes: 5000
   alpha: 0.1             # Q-learning step size
   gamma: 1.0             # discount factor (finite-horizon, so 1.0)
   epsilon_start: 1.0
   epsilon_end: 0.05
-  epsilon_decay: 0.9995  # multiplicative decay per episode
+  decay_schedule: linear
+  decay_episodes: 2500   # epsilon falls linearly from start to end over these episodes
 
 evaluation:
   test_seed: 99          # kept strictly separate from training seed
