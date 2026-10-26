@@ -8,3 +8,7 @@ __pycache__/
 
 results/checkpoints/agent_fallback_*.json
 results/checkpoints/agent_bins*.json
+
+results/q_table.json
+results/training_log.json
+results/eval_results.json
