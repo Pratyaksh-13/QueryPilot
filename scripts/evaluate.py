@@ -177,7 +177,7 @@ def evaluate(
 def main():
     parser = argparse.ArgumentParser(description="Evaluate QueryPilot RL agent and baselines.")
     parser.add_argument("--config", type=str, default="config/default.yaml", help="Path to config file")
-    parser.add_argument("--agent-path", type=str, default="results/q_table.json", help="Path to trained agent JSON")
+    parser.add_argument("--agent-path", type=str, default="results/checkpoints/agent_seed_101.json", help="Path to trained agent JSON")
     parser.add_argument("--test-seed", type=int, default=99, help="Held-out evaluation seed")
     parser.add_argument("--num-queries", type=int, default=50, help="Number of held-out test queries")
     parser.add_argument("--output-path", type=str, default="results/eval_results.json", help="Path to save evaluation results")
