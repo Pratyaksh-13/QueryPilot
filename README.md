@@ -87,6 +87,14 @@ python scripts/evaluate.py --agent-path results/q_table.json --num-queries 50 --
 
 Checkpoints for the greedy-fallback run and the 14-bucket ablation are not committed (they are listed in `.gitignore`); rerunning steps 1 and 4 regenerates them.
 
+## Evaluating the shipped trained agents (no retraining)
+
+```
+python scripts/eval_checkpoints.py
+```
+
+Evaluates `results/checkpoints/agent_seed_101..105.json` on test seed 888 over 10 tie-break seeds and writes `results/checkpoint_eval.json`. The full pipeline (`scripts/run_main_experiments.py`) takes about 1 minute on a laptop.
+
 ## Findings
 
 1. **RL beats Random but not Greedy.** About 20% of the policy's steps on validation queries chose an action that was never updated during training (17% to 22% per seed), and the learned policy loses to Greedy on most queries.
@@ -97,7 +105,7 @@ Checkpoints for the greedy-fallback run and the 14-bucket ablation are not commi
 ## Limitations
 
 - **The cardinality clamp saturates the simulator.** With base tables of up to 10,000 rows and selectivities up to 0.5, joins grow very quickly: the final result hits the 1e7 clamp in 100 of 100 test queries, and 38% (Greedy) to 47% (RL, seed 101) of intermediate results do as well. Every plan therefore pays a constant final-join cost, which also compresses the reported percentage gaps. A peak-cardinality metric is not informative here and is not reported.
-- **Evaluation is not bit-for-bit repeatable.** Ties between equal Q-values are broken with the agent's random number generator, so re-evaluating a loaded checkpoint can change individual query results slightly (for example, mean validation gap 14.06% in the original run versus 13.95% when recomputed from the checkpoints). Headline numbers are means over 5 seeds and 75 queries; single-query results should be read with this in mind.
+- **Evaluation depends on tie-breaking.** Ties between equal Q-values are broken with the agent's RNG. The headline 21.84% comes from the original experiment run. Re-evaluating the saved checkpoints with 10 other tie-break seeds (`scripts/eval_checkpoints.py`) gives 23.2% (range 21.9 to 24.5) for 4 to 6 tables, so RL closes about 51% of the Random-to-Greedy gap. The conclusion is unchanged. Training itself is deterministic.
 - **Synthetic queries and a simplified cost model.** Results do not claim to transfer to a real database engine.
 - **3-table queries are not solved perfectly** (2.68% mean gap for RL against 0% for Greedy). This was not investigated further.
 - **One test seed.** The test set has 100 queries from a single seed.
