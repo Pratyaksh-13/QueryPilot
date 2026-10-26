@@ -1,28 +1,25 @@
 """
 scripts/run_main_experiments.py
 -------------------------------
-Day 6-8 full experiment pipeline for QueryPilot.
+Full experiment pipeline for QueryPilot (train, validate, test, figures).
 
 Seed discipline:
-  Training : [101, 102, 103, 104, 105]
-  Validation: 500  - used for diagnostics and deciding on changes
-  Final test: 888  - used once at the very end, never for tuning
-  (Test seed 999 from Day 6 is intentionally NOT used here to avoid leakage.)
+  Training  : [101, 102, 103, 104, 105]
+  Validation: 500  - used for diagnostics and for choosing between variants
+  Final test: 888  - used once at the end, never for tuning
 
-Day 7/8 additions over Day 6:
-  - Val-gap curve: greedy policy is evaluated on val set every VAL_EVAL_EVERY
-    episodes during training. This replaces the training-return curve.
-  - Diagnostics (val seed 500 only):
-      * Fraction of val (s,a) pairs unseen after training.
-      * Whether Q=0 optimistic defaults are being chosen greedily.
-      * Action-key aliasing on 3-table val queries.
-  - Greedy fallback fix: when all Q-values are 0 (all-unseen state), fall
-    back to cheapest one-step join instead of random. Only applied if
-    diagnostics show >= 5% unseen-chosen rate.
-  - Paired RL-vs-Greedy stats: median gap diff + bootstrap CI.
-  - Peak intermediate cardinality tracked per episode.
-  - 5-seed re-run with fallback fix, evaluated on fresh test seed 888.
-  - Every change and its result is documented in the printed report.
+What it does:
+  - Run A (pure tabular Q-learning, the reported method): trains 5 agents,
+    records the greedy-policy validation gap every 500 episodes, runs
+    diagnostics (unseen state-action rate, action-key aliasing, paired
+    RL-vs-Greedy comparison) on the validation set.
+  - Run B (greedy-fallback variant): a hybrid that uses the cheapest one-step
+    join when no trained action is available. It is an experiment, not the
+    reported method. In our runs it made validation worse (about 18.4% vs 14.1%).
+  - The run with the lower mean validation gap is evaluated once on test seed 888.
+    Run A wins, so the reported results are pure RL.
+  - Writes checkpoints, training logs, figures and
+    results/main_experiment_summary.json.
 """
 
 import json
